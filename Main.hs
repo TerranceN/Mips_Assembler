@@ -12,3 +12,7 @@ main = do
         Left error -> putStrLn ("Error: " ++ (show error))
         Right result -> do
             BL.putStr $ BL.pack result
+    streamEnded <- hIsEOF stdin
+    if streamEnded
+        then return ()
+        else main
