@@ -101,6 +101,14 @@ hexNumber = do
       where
         ox = fromIntegral (ord x)
 
+decimalNumber :: Parser Word32
+decimalNumber = do
+    numString <- many1 (oneOf ['0'..'9'])
+    let number = read numString
+    if number > 0xFFFFFFFF || number < 0
+        then error "Invalid number"
+        else return number
+
 -- Parses an operation with a given name and parser
 -- Simplifies operations of the form 'name somethingElse'
 operation :: String -> Parser Operation -> Parser Operation
@@ -115,6 +123,7 @@ word :: Parser Operation
 word = operation ".word" $ do
     number <- (try binaryNumber)
           <|> (try hexNumber)
+          <|> (try decimalNumber)
     return (octets number)
 
 -- Uses the register command encoding to generate an operation
