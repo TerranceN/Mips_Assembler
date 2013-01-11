@@ -1,4 +1,6 @@
-module Parser where
+module Parser
+( parseOp
+) where
 
 import Control.Monad
 import Data.Word
