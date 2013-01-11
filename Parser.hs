@@ -38,7 +38,11 @@ operations =
     , moveFromLow
     , loadImmediateAndSkip
     , loadWord
+    , storeWord
+    , branchOnEqual
+    , branchOnNotEqual
     , jumpRegister
+    , jumpAndLinkRegister
     ]
 
 -- Splits a 32-bit integer into 4 8-bit integers
@@ -127,9 +131,13 @@ immediateEncoding :: Int -> Int -> Int -> Int -> Operation
 immediateEncoding op s t i =
     [ fromIntegral ((op `shiftL` 2) + (s `shiftR` 3))
     , fromIntegral ((s `shiftL` 5) + t)
-    , fromIntegral (i `shiftL` 8)
-    , fromIntegral (i `shiftR` 8)
+    , iHigh
+    , iLow
     ]
+  where
+    iParts = pairs (fromIntegral i)
+    iHigh = iParts !! 0
+    iLow = iParts !! 1
 
 -- Uses the register command encoding to generate an operation
 jumpEncoding :: Int -> Int -> Operation
@@ -150,14 +158,22 @@ register = do
         then error "Not a valid register"
         else return numInt
 
+immediateNumber :: Parser Int
+immediateNumber = do
+    number <- many1 (oneOf ['0'..'9'])
+    let numInt = read number
+    if numInt > 65535 || numInt < 0
+        then error "Not a valid 16-bit number"
+        else return numInt
+
 -- Parses a number and register of the form i($r) and returns (i, r)
 bracketRegister :: Parser (Int, Int)
 bracketRegister = do
-    number <- many1 (oneOf ['0'..'9'])
+    number <- immediateNumber
     char '('
     reg <- register
     char ')'
-    return (read number, reg)
+    return (number, reg)
 
 -- Skips the spaces and seperator between arguments
 argumentSeperator :: Parser ()
@@ -236,8 +252,56 @@ loadWord = operation "lw" $ do
     (i, s) <- bracketRegister
     return $ immediateEncoding 35 s t i
 
+storeWord :: Parser Operation
+storeWord = operation "sw" $ do
+    t <- register
+    argumentSeperator
+    (i, s) <- bracketRegister
+    return $ immediateEncoding 43 s t i
+
+setLessThan :: Parser Operation
+setLessThan = operation "slt" $ do
+    d <- register
+    argumentSeperator
+    s <- register
+    argumentSeperator
+    t <- register
+    return $ registerEncoding 0 s t d 0 42
+
+setLessThanUnsigned :: Parser Operation
+setLessThanUnsigned = operation "sltu" $ do
+    d <- register
+    argumentSeperator
+    s <- register
+    argumentSeperator
+    t <- register
+    return $ registerEncoding 0 s t d 0 43
+
+branchOnEqual :: Parser Operation
+branchOnEqual = operation "beq" $ do
+    s <- register
+    argumentSeperator
+    t <- register
+    argumentSeperator
+    i <- immediateNumber
+    return $ immediateEncoding 4 s t i
+
+branchOnNotEqual :: Parser Operation
+branchOnNotEqual = operation "bne" $ do
+    s <- register
+    argumentSeperator
+    t <- register
+    argumentSeperator
+    i <- immediateNumber
+    return $ immediateEncoding 5 s t i
+
 -- Parses the 'jr' command
 jumpRegister :: Parser Operation
 jumpRegister = operation "jr" $ do
     s <- register
     return $ jumpEncoding s 8
+
+jumpAndLinkRegister :: Parser Operation
+jumpAndLinkRegister = operation "jalr" $ do
+    s <- register
+    return $ jumpEncoding s 9
