@@ -29,6 +29,15 @@ operations :: [Parser Operation]
 operations =
     [ word
     , add
+    , Parser.subtract
+    , multiply
+    , multiplyUnsigned
+    , divide
+    , divideUnsigned
+    , moveFromHigh
+    , moveFromLow
+    , loadImmediateAndSkip
+    , loadWord
     , jumpRegister
     ]
 
@@ -114,7 +123,7 @@ registerEncoding op s t dest shift func =
     ]
 
 -- Uses the immediate encoding to generate an operation
-immediateEncoding :: Int -> Int -> Int -> Int
+immediateEncoding :: Int -> Int -> Int -> Int -> Operation
 immediateEncoding op s t i =
     [ fromIntegral ((op `shiftL` 2) + (s `shiftR` 3))
     , fromIntegral ((s `shiftL` 5) + t)
@@ -141,6 +150,15 @@ register = do
         then error "Not a valid register"
         else return numInt
 
+-- Parses a number and register of the form i($r) and returns (i, r)
+bracketRegister :: Parser (Int, Int)
+bracketRegister = do
+    number <- many1 (oneOf ['0'..'9'])
+    char '('
+    reg <- register
+    char ')'
+    return (read number, reg)
+
 -- Skips the spaces and seperator between arguments
 argumentSeperator :: Parser ()
 argumentSeperator = do
@@ -157,6 +175,66 @@ add = operation "add" $ do
     argumentSeperator
     t <- register
     return $ registerEncoding 0 s t d 0 32
+
+-- Parses the 'subtract command'
+subtract :: Parser Operation
+subtract = operation "sub" $ do
+    d <- register
+    argumentSeperator
+    s <- register
+    argumentSeperator
+    t <- register
+    return $ registerEncoding 0 s t d 0 34
+
+multiply :: Parser Operation
+multiply = operation "mult" $ do
+    s <- register
+    argumentSeperator
+    t <- register
+    return $ registerEncoding 0 s t 0 0 24
+
+multiplyUnsigned :: Parser Operation
+multiplyUnsigned = operation "multu" $ do
+    s <- register
+    argumentSeperator
+    t <- register
+    return $ registerEncoding 0 s t 0 0 25
+
+divide :: Parser Operation
+divide = operation "div" $ do
+    s <- register
+    argumentSeperator
+    t <- register
+    return $ registerEncoding 0 s t 0 0 26
+
+divideUnsigned :: Parser Operation
+divideUnsigned = operation "divu" $ do
+    s <- register
+    argumentSeperator
+    t <- register
+    return $ registerEncoding 0 s t 0 0 27
+
+moveFromHigh :: Parser Operation
+moveFromHigh = operation "mfhi" $ do
+    d <- register
+    return $ registerEncoding 0 0 0 d 0 16
+
+moveFromLow :: Parser Operation
+moveFromLow = operation "mflo" $ do
+    d <- register
+    return $ registerEncoding 0 0 0 d 0 18
+
+loadImmediateAndSkip :: Parser Operation
+loadImmediateAndSkip = operation "lis" $ do
+    d <- register
+    return $ registerEncoding 0 0 0 d 0 20
+
+loadWord :: Parser Operation
+loadWord = operation "lw" $ do
+    t <- register
+    argumentSeperator
+    (i, s) <- bracketRegister
+    return $ immediateEncoding 35 s t i
 
 -- Parses the 'jr' command
 jumpRegister :: Parser Operation
