@@ -113,6 +113,15 @@ registerEncoding op s t dest shift func =
     , fromIntegral ((shift `shiftL` 6) + func)
     ]
 
+-- Uses the immediate encoding to generate an operation
+immediateEncoding :: Int -> Int -> Int -> Int
+immediateEncoding op s t i =
+    [ fromIntegral ((op `shiftL` 2) + (s `shiftR` 3))
+    , fromIntegral ((s `shiftL` 5) + t)
+    , fromIntegral (i `shiftL` 8)
+    , fromIntegral (i `shiftR` 8)
+    ]
+
 -- Uses the register command encoding to generate an operation
 jumpEncoding :: Int -> Int -> Operation
 jumpEncoding s op =
