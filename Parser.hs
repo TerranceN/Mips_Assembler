@@ -8,18 +8,23 @@ import Data.Bits
 import Data.Char
 import Text.ParserCombinators.Parsec
 
+-- Defines an operation for the MIPS processor in binary
 type Operation = [Word8]
 
+-- parses a single decimal digit
 numbers :: Parser Char
 numbers = oneOf ['0'..'9']
 
+-- parses a single hex digit
 hexNumbers :: Parser Char
 hexNumbers = (try numbers) <|> oneOf (['A'..'F'] ++ ['a'..'f'])
 
+-- parses an operation using the list of operations parsers
 parseOp :: Parser Operation
 parseOp =
     foldr1 (\a b -> (try a) <|> b) operations
 
+-- The list of supported operation parsers
 operations :: [Parser Operation]
 operations =
     [ word
@@ -27,6 +32,7 @@ operations =
     , jumpRegister
     ]
 
+-- Splits a 32-bit integer into 4 8-bit integers
 octets :: Word32 -> [Word8]
 octets w = 
     [ fromIntegral (w `shiftR` 24)
@@ -35,19 +41,22 @@ octets w =
     , fromIntegral w
     ]
 
+-- Splits a 16-bit integer into 2 8-bit integers
 pairs :: Word16 -> [Word8]
 pairs w =
     [ fromIntegral (w `shiftR` 8)
     , fromIntegral w
     ]
 
-nOf :: Int -> Parser Char -> Parser String
-nOf 0 chrs = return ""
+-- Performs a parser n times, putting the results into a list
+nOf :: Int -> Parser a -> Parser [a]
+nOf 0 chrs = return []
 nOf n chrs = do
     chr <- chrs
     rest <- nOf (n-1) chrs
     return (chr:rest)
 
+-- Parses a 32-bit number in binary
 binaryNumber :: Parser Word32
 binaryNumber = do
     char '0'
@@ -62,6 +71,7 @@ binaryNumber = do
             then 1 + 2 * (binToW32 xs)
             else 2 * (binToW32 xs)
 
+-- Parses a 32-bit number in hexidecimal
 hexNumber :: Parser Word32
 hexNumber = do
     char '0'
@@ -78,6 +88,8 @@ hexNumber = do
       where
         ox = fromIntegral (ord x)
 
+-- Parses an operation with a given name and parser
+-- Simplifies operations of the form 'name somethingElse'
 operation :: String -> Parser Operation -> Parser Operation
 operation s p = do
     skipMany space
@@ -85,12 +97,14 @@ operation s p = do
     skipMany1 space
     p
 
+-- Parses a '.word' command
 word :: Parser Operation
 word = operation ".word" $ do
     number <- (try binaryNumber)
           <|> (try hexNumber)
     return (octets number)
 
+-- Uses the register command encoding to generate an operation
 registerEncoding :: Int -> Int -> Int -> Int -> Int -> Int -> Operation
 registerEncoding op s t dest shift func =
     [ fromIntegral ((op `shiftL` 2) + (s `shiftR` 3))
@@ -99,6 +113,7 @@ registerEncoding op s t dest shift func =
     , fromIntegral ((shift `shiftL` 6) + func)
     ]
 
+-- Uses the register command encoding to generate an operation
 jumpEncoding :: Int -> Int -> Operation
 jumpEncoding s op =
     [ fromIntegral (s `shiftR` 3)
@@ -107,6 +122,7 @@ jumpEncoding s op =
     , fromIntegral op
     ]
 
+-- Parses a register argument
 register :: Parser Int
 register = do
     char '$'
@@ -116,12 +132,14 @@ register = do
         then error "Not a valid register"
         else return numInt
 
+-- Skips the spaces and seperator between arguments
 argumentSeperator :: Parser ()
 argumentSeperator = do
     skipMany space
     char ','
     skipMany space
 
+-- Parses the 'add' command
 add :: Parser Operation
 add = operation "add" $ do
     d <- register
@@ -131,6 +149,7 @@ add = operation "add" $ do
     t <- register
     return $ registerEncoding 0 s t d 0 32
 
+-- Parses the 'jr' command
 jumpRegister :: Parser Operation
 jumpRegister = operation "jr" $ do
     s <- register
