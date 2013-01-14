@@ -101,13 +101,21 @@ hexNumber = do
       where
         ox = fromIntegral (ord x)
 
+parsePositiveNumber :: Parser Int
+parsePositiveNumber = do
+    numString <- many1 (oneOf ['0'..'9'])
+    return $ read numString
+
+parseInteger :: Parser Int
+parseInteger = (try (char '-' >> fmap (* (-1)) parsePositiveNumber))
+           <|> parsePositiveNumber
+
 decimalNumber :: Parser Word32
 decimalNumber = do
-    numString <- many1 (oneOf ['0'..'9'])
-    let number = read numString
-    if number > 0xFFFFFFFF || number < 0
+    number <- parseInteger
+    if number > 0xEFFFFFFF || number < (-0x80000000)
         then error "Invalid number"
-        else return number
+        else return (fromIntegral number)
 
 -- Parses an operation with a given name and parser
 -- Simplifies operations of the form 'name somethingElse'
@@ -169,11 +177,10 @@ register = do
 
 immediateNumber :: Parser Int
 immediateNumber = do
-    number <- many1 (oneOf ['0'..'9'])
-    let numInt = read number
-    if numInt > 65535 || numInt < 0
+    number <- parseInteger
+    if number > 0x7FFF || number < (-0x8000)
         then error "Not a valid 16-bit number"
-        else return numInt
+        else return number
 
 -- Parses a number and register of the form i($r) and returns (i, r)
 bracketRegister :: Parser (Int, Int)
