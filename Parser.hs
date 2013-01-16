@@ -1,12 +1,18 @@
 module Parser
 ( parseOp
+, parseLbl
+, Operation
+, Label
 ) where
 
 import Control.Monad
 import Data.Word
 import Data.Bits
 import Data.Char
+import Data.List
 import Text.ParserCombinators.Parsec
+
+type Label = (String, Int)
 
 -- Defines an operation for the MIPS processor in binary
 type Operation = [Word8]
@@ -19,16 +25,32 @@ numbers = oneOf ['0'..'9']
 hexNumbers :: Parser Char
 hexNumbers = (try numbers) <|> oneOf (['A'..'F'] ++ ['a'..'f'])
 
+parseLbl :: Parser [String]
+parseLbl =
+    foldr (\a b -> (try (parseSingleOperation a)) <|> b) (return []) (operations [] 0)
+  where
+    parseSingleOperation :: Parser Operation -> Parser [String]
+    parseSingleOperation op = (try (op >> comment >> return []))
+                          <|> (try ((maybeParse parseLabels []) >>= \x -> (op >> comment >> return x)))
+                          <|> (comment >> return [])
+
 -- parses an operation using the list of operations parsers
-parseOp :: Parser Operation
-parseOp =
-    foldr1 (\a b -> (try (a >>= \x -> commentLine >> return x)) <|> b) operations
+parseOp :: [Label] -> Int -> Parser Operation
+parseOp labels lineNum =
+    foldr1 (\a b -> (try (parseSingleOperation a)) <|> b) (operations labels lineNum)
+  where
+    parseSingleOperation :: Parser Operation -> Parser Operation
+    parseSingleOperation op = (try (op >>= \x -> comment >> return x))
+                          <|> (try ((maybeParse parseLabels []) >> (op >>= \x -> comment >> return x)))
+                          <|> (comment >> return [])
+
+maybeParse :: Parser a -> a -> Parser a
+maybeParse p d = (try p) <|> return d
 
 -- The list of supported operation parsers
-operations :: [Parser Operation]
-operations =
-    [ (return [])
-    , word
+operations :: [Label] -> Int -> [Parser Operation]
+operations labels lineNum =
+    [ word
     , add
     , Parser.subtract
     , multiply
@@ -40,17 +62,37 @@ operations =
     , loadImmediateAndSkip
     , loadWord
     , storeWord
-    , branchOnEqual
-    , branchOnNotEqual
+    , branchOnEqual labels lineNum
+    , branchOnNotEqual labels lineNum
     , jumpRegister
     , jumpAndLinkRegister
     ]
 
-commentLine :: Parser Operation
-commentLine = do
-    many space
-    (try (char ';' >> many (noneOf "") >> eof)) <|> eof
-    return []
+comment :: Parser ()
+comment = do
+    skipMany space        
+    (try (char ';' >> many anyChar >> eof)) <|> eof
+    return ()
+
+parseLabels :: Parser [String]
+parseLabels = do
+    skipMany space
+    lbl <- parseLabel
+    skipMany space
+    (try (char ':' >> return [lbl])) <|> (parseLabels >>= \xs -> return (lbl:xs))
+  where
+
+parseLabel :: Parser String
+parseLabel = do
+    x <- firstChar
+    xs <- restChars
+    return (x:xs)
+  where
+    validFirstChars = ['A'..'Z'] ++ ['a'..'z']
+    firstChar :: Parser Char
+    firstChar = oneOf validFirstChars
+    restChars :: Parser String
+    restChars = many (oneOf (validFirstChars ++ ['0'..'9']))
 
 -- Splits a 32-bit integer into 4 8-bit integers
 octets :: Word32 -> [Word8]
@@ -75,6 +117,13 @@ nOf n chrs = do
     chr <- chrs
     rest <- nOf (n-1) chrs
     return (chr:rest)
+
+parseBranchLabel :: [Label] -> Int -> Parser Int
+parseBranchLabel labels lineNum = do
+    label <- parseLabel
+    case find (\(key,_) -> key == label) labels of
+        Just (_, lblLine) -> return (lblLine - lineNum - 1)
+        Nothing -> fail "No label found"
 
 -- Parses a 32-bit number in binary
 binaryNumber :: Parser Word32
@@ -300,22 +349,22 @@ setLessThanUnsigned = operation "sltu" $ do
     t <- register
     return $ registerEncoding 0 s t d 0 43
 
-branchOnEqual :: Parser Operation
-branchOnEqual = operation "beq" $ do
+branchOnEqual :: [Label] -> Int -> Parser Operation
+branchOnEqual labels lineNum = operation "beq" $ do
     s <- register
     argumentSeperator
     t <- register
     argumentSeperator
-    i <- immediateNumber
+    i <- (try immediateNumber) <|> parseBranchLabel labels lineNum
     return $ immediateEncoding 4 s t i
 
-branchOnNotEqual :: Parser Operation
-branchOnNotEqual = operation "bne" $ do
+branchOnNotEqual :: [Label] -> Int -> Parser Operation
+branchOnNotEqual labels lineNum = operation "bne" $ do
     s <- register
     argumentSeperator
     t <- register
     argumentSeperator
-    i <- immediateNumber
+    i <- (try immediateNumber) <|> parseBranchLabel labels lineNum
     return $ immediateEncoding 5 s t i
 
 -- Parses the 'jr' command
