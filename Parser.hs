@@ -22,12 +22,13 @@ hexNumbers = (try numbers) <|> oneOf (['A'..'F'] ++ ['a'..'f'])
 -- parses an operation using the list of operations parsers
 parseOp :: Parser Operation
 parseOp =
-    foldr1 (\a b -> (try a) <|> b) operations
+    foldr1 (\a b -> (try (a >>= \x -> commentLine >> return x)) <|> b) operations
 
 -- The list of supported operation parsers
 operations :: [Parser Operation]
 operations =
-    [ word
+    [ (return [])
+    , word
     , add
     , Parser.subtract
     , multiply
@@ -44,6 +45,12 @@ operations =
     , jumpRegister
     , jumpAndLinkRegister
     ]
+
+commentLine :: Parser Operation
+commentLine = do
+    many space
+    (try (char ';' >> many (noneOf "") >> eof)) <|> eof
+    return []
 
 -- Splits a 32-bit integer into 4 8-bit integers
 octets :: Word32 -> [Word8]
