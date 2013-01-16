@@ -44,7 +44,7 @@ parseLine =
         (try (comment >> newline)) <|> newline
         return Nothing
     operationLine = do
-        labels <- (try parseLabels) <|> return []
+        labels <- (maybeParse parseLabels [])
         op <- parseOperation
         (try (comment >> eol)) <|> eol
         return $ Just (labels, op)
