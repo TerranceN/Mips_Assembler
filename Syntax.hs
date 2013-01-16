@@ -121,6 +121,12 @@ errorFind a (p@(x, y):xs) =
         then p
         else errorFind a xs
 
+getLineDifference :: Label -> LineCompiler Int
+getLineDifference label = do
+    lineNumber <- fmap lineNum $ ask
+    (_, labelNum) <- fmap ((errorFind label) . (labels)) (lift ask)
+    return (labelNum - lineNumber - 1)
+
 compileOperation :: Operation -> LineCompiler [Word8]
 compileOperation (Word i) = return $ octets $ fromIntegral i
 compileOperation (Add d s t) = return $ registerEncoding 0 s t d 0 32
@@ -137,14 +143,12 @@ compileOperation (StoreWord s t i) = return $ immediateEncoding 43 s t i
 compileOperation (SetLessThan d s t) = return $ registerEncoding 0 s t d 0 42
 compileOperation (SetLessThanUnsigned d s t) = return $ registerEncoding 0 s t d 0 43
 compileOperation (BranchOnEqual s t (LabelLocation l)) = do
-    lineNumber <- fmap lineNum $ ask
-    (_, labelNum) <- fmap ((errorFind l) . (labels)) (lift ask)
-    compileOperation (BranchOnEqual s t (IntLocation (labelNum - lineNumber)))
+    lineDiff <- getLineDifference l
+    compileOperation (BranchOnEqual s t (IntLocation lineDiff))
 compileOperation (BranchOnEqual s t (IntLocation i)) = return $ immediateEncoding 4 s t i
 compileOperation (BranchOnNotEqual s t (LabelLocation l)) = do
-    lineNumber <- fmap lineNum $ ask
-    (_, labelNum) <- fmap ((errorFind l) . (labels)) (lift ask)
-    compileOperation (BranchOnNotEqual s t (IntLocation (labelNum - lineNumber)))
+    lineDiff <- getLineDifference l
+    compileOperation (BranchOnNotEqual s t (IntLocation lineDiff))
 compileOperation (BranchOnNotEqual s t (IntLocation i)) = return $ immediateEncoding 5 s t i
 compileOperation (JumpRegister s) = return $ jumpEncoding s 8
 compileOperation (JumpAndLinkRegister s) = return $ jumpEncoding s 9
