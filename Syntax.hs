@@ -1,4 +1,12 @@
-module Syntax where
+module Syntax
+( Operation(..)
+, Program
+, Line
+, Location(..)
+, Label
+, Register
+, compileProgram
+) where
 
 import Control.Monad.Reader
 import Data.Functor.Identity
@@ -16,6 +24,7 @@ type Label = String
 
 data Location = LabelLocation Label
               | IntLocation Int
+              deriving (Show, Eq)
 
 data Operation = Word Int
                | Add Register Register Register
@@ -35,6 +44,7 @@ data Operation = Word Int
                | BranchOnNotEqual Register Register Location
                | JumpRegister Register
                | JumpAndLinkRegister Register
+               deriving (Show, Eq)
 
 type Line = ([Label], Operation)
 type Program = [Line]

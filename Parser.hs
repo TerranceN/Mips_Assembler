@@ -1,15 +1,14 @@
 module Parser
-( parseOp
+( parseProgram
 ) where
 
 import Control.Monad
 import Data.Word
 import Data.Bits
 import Data.Char
-import Text.ParserCombinators.Parsec
+import Text.ParserCombinators.Parsec hiding (Line)
 
--- Defines an operation for the MIPS processor in binary
-type Operation = [Word8]
+import Syntax
 
 -- parses a single decimal digit
 numbers :: Parser Char
@@ -19,16 +18,68 @@ numbers = oneOf ['0'..'9']
 hexNumbers :: Parser Char
 hexNumbers = (try numbers) <|> oneOf (['A'..'F'] ++ ['a'..'f'])
 
--- parses an operation using the list of operations parsers
-parseOp :: Parser Operation
-parseOp =
-    foldr1 (\a b -> (try (a >>= \x -> commentLine >> return x)) <|> b) operations
+parseProgram :: Parser Program
+parseProgram = (newline >> parseProgram) <|> ((eof >> return []) <|> parseLines)
+
+maybeParse :: Parser a -> a -> Parser a
+maybeParse p a = ((try p) <|> return a)
+
+eol :: Parser ()
+eol = (newline <|> (eof >> return '\0')) >> return ()
+
+parseLines :: Parser Program
+parseLines = do
+    maybeLine <- parseLine
+    case maybeLine of
+        Nothing -> parseProgram
+        Just syntaxLine -> do
+            rest <- parseProgram
+            return $ syntaxLine:rest
+
+parseLine :: Parser (Maybe Line)
+parseLine =
+    operationLine <|> commentLine
+  where
+    commentLine = do
+        (try (comment >> newline)) <|> newline
+        return Nothing
+    operationLine = do
+        labels <- (try parseLabels) <|> return []
+        op <- parseOperation
+        (try (comment >> eol)) <|> eol
+        return $ Just (labels, op)
+
+parseLabels :: Parser [String]
+parseLabels = do
+    labels <- many1 parseLabel
+    char ':'
+    return labels
+
+parseLabel :: Parser String
+parseLabel = do
+    skipMany space
+    first <- firstChar
+    rest <- restChars
+    return (first:rest)
+  where
+    firstChars = ['a'..'z'] ++ ['A'..'Z']
+    firstChar = oneOf firstChars
+    restChars = many (oneOf (firstChars ++ ['0'..'9']))
+
+parseOperation :: Parser Operation
+parseOperation = do
+    foldr1 (\a b -> (try a) <|> b) operations
+
+comment :: Parser ()
+comment = do
+    skipMany space
+    char ';'
+    skipMany (noneOf "\n")
 
 -- The list of supported operation parsers
 operations :: [Parser Operation]
 operations =
-    [ (return [])
-    , word
+    [ word
     , add
     , Parser.subtract
     , multiply
@@ -44,28 +95,6 @@ operations =
     , branchOnNotEqual
     , jumpRegister
     , jumpAndLinkRegister
-    ]
-
-commentLine :: Parser Operation
-commentLine = do
-    many space
-    (try (char ';' >> many (noneOf "") >> eof)) <|> eof
-    return []
-
--- Splits a 32-bit integer into 4 8-bit integers
-octets :: Word32 -> [Word8]
-octets w = 
-    [ fromIntegral (w `shiftR` 24)
-    , fromIntegral (w `shiftR` 16)
-    , fromIntegral (w `shiftR` 8)
-    , fromIntegral w
-    ]
-
--- Splits a 16-bit integer into 2 8-bit integers
-pairs :: Word16 -> [Word8]
-pairs w =
-    [ fromIntegral (w `shiftR` 8)
-    , fromIntegral w
     ]
 
 -- Performs a parser n times, putting the results into a list
@@ -139,38 +168,7 @@ word = operation ".word" $ do
     number <- (try binaryNumber)
           <|> (try hexNumber)
           <|> (try decimalNumber)
-    return (octets number)
-
--- Uses the register command encoding to generate an operation
-registerEncoding :: Int -> Int -> Int -> Int -> Int -> Int -> Operation
-registerEncoding op s t dest shift func =
-    [ fromIntegral ((op `shiftL` 2) + (s `shiftR` 3))
-    , fromIntegral ((s `shiftL` 5) + t)
-    , fromIntegral ((dest `shiftL` 3) + (shift `shiftR` 2))
-    , fromIntegral ((shift `shiftL` 6) + func)
-    ]
-
--- Uses the immediate encoding to generate an operation
-immediateEncoding :: Int -> Int -> Int -> Int -> Operation
-immediateEncoding op s t i =
-    [ fromIntegral ((op `shiftL` 2) + (s `shiftR` 3))
-    , fromIntegral ((s `shiftL` 5) + t)
-    , iHigh
-    , iLow
-    ]
-  where
-    iParts = pairs (fromIntegral i)
-    iHigh = iParts !! 0
-    iLow = iParts !! 1
-
--- Uses the register command encoding to generate an operation
-jumpEncoding :: Int -> Int -> Operation
-jumpEncoding s op =
-    [ fromIntegral (s `shiftR` 3)
-    , fromIntegral (s `shiftL` 5)
-    , 0
-    , fromIntegral op
-    ]
+    return (Word (fromIntegral number))
 
 -- Parses a register argument
 register :: Parser Int
@@ -213,7 +211,7 @@ add = operation "add" $ do
     s <- register
     argumentSeperator
     t <- register
-    return $ registerEncoding 0 s t d 0 32
+    return $ Add d s t
 
 -- Parses the 'subtract command'
 subtract :: Parser Operation
@@ -223,64 +221,64 @@ subtract = operation "sub" $ do
     s <- register
     argumentSeperator
     t <- register
-    return $ registerEncoding 0 s t d 0 34
+    return $ Subtract d s t
 
 multiply :: Parser Operation
 multiply = operation "mult" $ do
     s <- register
     argumentSeperator
     t <- register
-    return $ registerEncoding 0 s t 0 0 24
+    return $ Multiply s t
 
 multiplyUnsigned :: Parser Operation
 multiplyUnsigned = operation "multu" $ do
     s <- register
     argumentSeperator
     t <- register
-    return $ registerEncoding 0 s t 0 0 25
+    return $ MultiplyUnsigned s t
 
 divide :: Parser Operation
 divide = operation "div" $ do
     s <- register
     argumentSeperator
     t <- register
-    return $ registerEncoding 0 s t 0 0 26
+    return $ Divide s t
 
 divideUnsigned :: Parser Operation
 divideUnsigned = operation "divu" $ do
     s <- register
     argumentSeperator
     t <- register
-    return $ registerEncoding 0 s t 0 0 27
+    return $ DivideUnsigned s t
 
 moveFromHigh :: Parser Operation
 moveFromHigh = operation "mfhi" $ do
     d <- register
-    return $ registerEncoding 0 0 0 d 0 16
+    return $ MoveFromHigh d
 
 moveFromLow :: Parser Operation
 moveFromLow = operation "mflo" $ do
     d <- register
-    return $ registerEncoding 0 0 0 d 0 18
+    return $ MoveFromLow d
 
 loadImmediateAndSkip :: Parser Operation
 loadImmediateAndSkip = operation "lis" $ do
     d <- register
-    return $ registerEncoding 0 0 0 d 0 20
+    return $ LoadImmediateAndSkip d
 
 loadWord :: Parser Operation
 loadWord = operation "lw" $ do
     t <- register
     argumentSeperator
     (i, s) <- bracketRegister
-    return $ immediateEncoding 35 s t i
+    return $ LoadWord s t i
 
 storeWord :: Parser Operation
 storeWord = operation "sw" $ do
     t <- register
     argumentSeperator
     (i, s) <- bracketRegister
-    return $ immediateEncoding 43 s t i
+    return $ StoreWord s t i
 
 setLessThan :: Parser Operation
 setLessThan = operation "slt" $ do
@@ -289,7 +287,7 @@ setLessThan = operation "slt" $ do
     s <- register
     argumentSeperator
     t <- register
-    return $ registerEncoding 0 s t d 0 42
+    return $ SetLessThan d s t
 
 setLessThanUnsigned :: Parser Operation
 setLessThanUnsigned = operation "sltu" $ do
@@ -298,7 +296,7 @@ setLessThanUnsigned = operation "sltu" $ do
     s <- register
     argumentSeperator
     t <- register
-    return $ registerEncoding 0 s t d 0 43
+    return $ SetLessThanUnsigned d s t
 
 branchOnEqual :: Parser Operation
 branchOnEqual = operation "beq" $ do
@@ -307,8 +305,8 @@ branchOnEqual = operation "beq" $ do
     t <- register
     argumentSeperator
     i <- immediateNumber
-    return $ immediateEncoding 4 s t i
-
+    return $ BranchOnEqual s t (IntLocation i)
+    
 branchOnNotEqual :: Parser Operation
 branchOnNotEqual = operation "bne" $ do
     s <- register
@@ -316,15 +314,15 @@ branchOnNotEqual = operation "bne" $ do
     t <- register
     argumentSeperator
     i <- immediateNumber
-    return $ immediateEncoding 5 s t i
+    return $ BranchOnNotEqual s t (IntLocation i)
 
 -- Parses the 'jr' command
 jumpRegister :: Parser Operation
 jumpRegister = operation "jr" $ do
     s <- register
-    return $ jumpEncoding s 8
+    return $ JumpRegister s
 
 jumpAndLinkRegister :: Parser Operation
 jumpAndLinkRegister = operation "jalr" $ do
     s <- register
-    return $ jumpEncoding s 9
+    return $ JumpAndLinkRegister s
