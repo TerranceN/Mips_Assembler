@@ -149,8 +149,8 @@ parseInteger = (try (char '-' >> fmap (* (-1)) parsePositiveNumber))
 decimalNumber :: Parser Word32
 decimalNumber = do
     number <- parseInteger
-    if number > 0xEFFFFFFF || number < (-0x80000000)
-        then error "Invalid number"
+    if number > 0x7FFFFFFF || number < (-0x80000000)
+        then error ("Not a valid 32-bit number: " ++ (show number))
         else return (fromIntegral number)
 
 -- Parses an operation with a given name and parser
@@ -184,7 +184,7 @@ immediateNumber :: Parser Int
 immediateNumber = do
     number <- parseInteger
     if number > 0x7FFF || number < (-0x8000)
-        then error "Not a valid 16-bit number"
+        then error ("Not a valid 16-bit number: " ++ (show number))
         else return number
 
 -- Parses a number and register of the form i($r) and returns (i, r)
