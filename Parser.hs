@@ -304,8 +304,8 @@ branchOnEqual = operation "beq" $ do
     argumentSeperator
     t <- register
     argumentSeperator
-    i <- immediateNumber
-    return $ BranchOnEqual s t (IntLocation i)
+    (try (immediateNumber >>= \i -> return $ BranchOnEqual s t (IntLocation i)))
+     <|> (parseLabel >>= \l -> return $ BranchOnEqual s t (LabelLocation l))
     
 branchOnNotEqual :: Parser Operation
 branchOnNotEqual = operation "bne" $ do
@@ -313,8 +313,8 @@ branchOnNotEqual = operation "bne" $ do
     argumentSeperator
     t <- register
     argumentSeperator
-    i <- immediateNumber
-    return $ BranchOnNotEqual s t (IntLocation i)
+    (try (immediateNumber >>= \i -> return $ BranchOnNotEqual s t (IntLocation i)))
+     <|> (parseLabel >>= \l -> return $ BranchOnNotEqual s t (LabelLocation l))
 
 -- Parses the 'jr' command
 jumpRegister :: Parser Operation
