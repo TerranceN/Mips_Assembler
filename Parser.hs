@@ -91,6 +91,8 @@ operations =
     , loadImmediateAndSkip
     , loadWord
     , storeWord
+    , setLessThan
+    , setLessThanUnsigned
     , branchOnEqual
     , branchOnNotEqual
     , jumpRegister
